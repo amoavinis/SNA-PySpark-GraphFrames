@@ -2,15 +2,18 @@
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-import pyspark
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+from pyspark.sql import SparkSession
+
+def init_spark():
+    spark = SparkSession.builder.appName("HelloWorld").getOrCreate()
+    sc = spark.sparkContext
+    return spark, sc
 
 
-# Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    print_hi('PyCharm')
+    spark, sc = init_spark()
+    nums = sc.parallelize([1, 2, 3, 4])
+    print(nums.map(lambda x: x * x).collect())
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
