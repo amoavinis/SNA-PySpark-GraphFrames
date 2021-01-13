@@ -1,0 +1,7 @@
+1. youtube https://snap.stanford.edu/data/com-Youtube.html
+2. facebook https://snap.stanford.edu/data/ego-Facebook.html
+3. github https://snap.stanford.edu/data/github-social.html
+4. pokec https://snap.stanford.edu/data/soc-Pokec.html
+5. journal https://snap.stanford.edu/data/soc-LiveJournal1.html
+6. slashdot https://snap.stanford.edu/data/soc-Slashdot0811.html, https://snap.stanford.edu/data/soc-Slashdot0902.html
+7. wikipedia-talk https://snap.stanford.edu/data/wiki-Talk.html
