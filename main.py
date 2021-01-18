@@ -1,11 +1,15 @@
 from pyspark import SparkConf
 from pyspark.sql import SparkSession
 from graphframes import *
+from pyspark.sql import functions as F
+from pyspark.sql.types import *
+from random import sample
 
 formatter = 'com.databricks.spark.csv'
 
+
 def init_spark():
-    sparkConf = SparkConf().setMaster("local[*]")
+    sparkConf = SparkConf().setMaster("local[2]")
     spark = SparkSession\
         .builder\
         .appName("SNA")\
@@ -13,6 +17,7 @@ def init_spark():
         .getOrCreate()
     sc = spark.sparkContext
     return spark, sc
+
 
 def create_graph():
     combined = spark.read.format(formatter).options(delimiter=' ', header='false', inferSchema=True) \
@@ -32,12 +37,13 @@ def create_graph():
     # drop duplicate edges
     # new_edges = new_edges.dropDuplicates(['src', 'dst'])
 
-    #print("vertex count: %d" % new_vertices.count())
-    #print("edge count: %d" % new_edges.count())
+    # print("vertex count: %d" % new_vertices.count())
+    # print("edge count: %d" % new_edges.count())
 
     # created graph only with connections among vertices
     graph = GraphFrame(new_vertices, new_edges)
     return graph
+
 
 def load_dummy_graph():
     # define vertices
@@ -66,6 +72,7 @@ def load_dummy_graph():
     graph = GraphFrame(vertices, edges)
     return graph
 
+
 if __name__ == '__main__':
     spark, sc = init_spark()
     sc.setLogLevel("ERROR")
@@ -93,13 +100,39 @@ if __name__ == '__main__':
     results.select("id", "count").show()
     """
 
-    graph = create_graph() #facebook graph, only vertices and edges, without metadata for each vertex
+    graph = create_graph()  # facebook graph, only vertices and edges, without metadata for each vertex
 
-    #graph.inDegrees.show(5)
+    # graph.inDegrees.show(5)
 
     communities = graph.labelPropagation(maxIter=5)
-    communities.persist().show()
+    # communities.persist().show()
+
+    normalizedCommunities = list(communities.select('label').distinct().toLocalIterator())
+    d = dict()
+    for i in range(len(normalizedCommunities)):
+        d.update({normalizedCommunities[i].__getattr__('label'): i})
+
+    def dictionary_function(d):
+        def f(x):
+            return d[x]
+        return f
+    dict_f = dictionary_function(d)
+    udf_dict = F.udf(dict_f, IntegerType())
+
+    df = communities.withColumn('label', udf_dict('label'))
+
+    df = df.rdd.map(lambda x: (x[1], x[0])).partitionBy(len(d))
+
+    def foo(x):
+        #print(type(x))
+        x1 = list(x)
+        #Set = set()
+        #for s in x:
+        #    Set.add(s[0])
+        #print(Set)
+        return sample(x1, min(len(x1), 10))
+
+    df2 = df.mapPartitions(foo)
+    print(df2.count())
 
     print(f"There are {communities.select('label').distinct().count()} communities in sample graph.")
-
-
