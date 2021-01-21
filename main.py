@@ -5,6 +5,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import *
 from random import sample
 
+
 formatter = 'com.databricks.spark.csv'
 
 
@@ -77,6 +78,7 @@ if __name__ == '__main__':
     spark, sc = init_spark()
     sc.setLogLevel("ERROR")
 
+
     dummy = load_dummy_graph()
     """
     Some basic functions:
@@ -104,7 +106,7 @@ if __name__ == '__main__':
 
     # graph.inDegrees.show(5)
 
-    communities = graph.labelPropagation(maxIter=5)
+    communities = graph.labelPropagation(maxIter=1)
     # communities.persist().show()
 
     normalizedCommunities = list(communities.select('label').distinct().toLocalIterator())
@@ -123,16 +125,56 @@ if __name__ == '__main__':
 
     df = df.rdd.map(lambda x: (x[1], x[0])).partitionBy(len(d))
 
-    def foo(x):
-        #print(type(x))
+    def subgraph(g_v, g_e, v):
+        #v_list = [[v1] for v1 in v]
+        #v_rdd = sc.parallelize(v_list)
+        #V = spark.createDataFrame(v_rdd, ['id'])
+        #e_list = []
+        #for vi in v_list:
+        #    for vj in v_list:
+        #        if g.edges.filter((g.edges['src']==vi[0])&(g.edges['dst']==vj[0])).count()>0:
+        #            e_list.append([vi[0], vj[0]])
+        #e_rdd = sc.parallelize(e_list)
+        #E = spark.createDataFrame(e_rdd, ['src', 'dst'])
+        #subg = sc.GraphFrame(V, E)
+        return [0]#subg
+
+    def stratified_sampling(g, x):
         x1 = list(x)
-        #Set = set()
-        #for s in x:
-        #    Set.add(s[0])
-        #print(Set)
-        return sample(x1, min(len(x1), 10))
+        sampled = sample(x1, min(len(x1), 10))
 
-    df2 = df.mapPartitions(foo)
-    print(df2.count())
+        #sub = subgraph(g_v, g_e, sampled)
 
-    print(f"There are {communities.select('label').distinct().count()} communities in sample graph.")
+        return sampled
+    V = graph.vertices
+    E = graph.edges
+    print(type(V))
+
+    v = spark.createDataFrame([
+        ("a", "Alice", 34),
+        ("b", "Bob", 36),
+        ("c", "Charlie", 30),
+        ("d", "David", 29),
+        ("e", "Esther", 32),
+        ("f", "Fanny", 36),
+        ("g", "Gabby", 60)
+    ], ["id", "name", "age"])
+    # Edge DataFrame
+    e = spark.createDataFrame([
+        ("a", "b", "friend"),
+        ("b", "c", "follow"),
+        ("c", "b", "follow"),
+        ("f", "c", "follow"),
+        ("e", "f", "follow"),
+        ("e", "d", "friend"),
+        ("d", "a", "friend"),
+        ("a", "e", "friend")
+    ], ["src", "dst", "relationship"])
+    # Create a GraphFrame
+    g = GraphFrame(v, e)
+    l = [1, 2, 3]
+    #list(g.vertices.toLocalIterator())
+    df2 = df.foreachPartition(lambda x: stratified_sampling(v, x))
+
+
+    #print(f"There are {communities.select('label').distinct().count()} communities in sample graph.")
