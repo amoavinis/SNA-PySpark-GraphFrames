@@ -3,21 +3,19 @@ from pyspark.sql import SparkSession
 from graphframes import *
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
-from random import sample
-
 
 formatter = 'com.databricks.spark.csv'
 
 
 def init_spark():
     sparkConf = SparkConf().setMaster("local[2]")
-    spark = SparkSession\
+    spark1 = SparkSession\
         .builder\
         .appName("SNA")\
         .config(conf=sparkConf)\
         .getOrCreate()
-    sc = spark.sparkContext
-    return spark, sc
+    sc1 = spark1.sparkContext
+    return spark1, sc1
 
 
 def create_graph():
@@ -42,139 +40,54 @@ def create_graph():
     # print("edge count: %d" % new_edges.count())
 
     # created graph only with connections among vertices
-    graph = GraphFrame(new_vertices, new_edges)
-    return graph
-
-
-def load_dummy_graph():
-    # define vertices
-    vertices = spark.createDataFrame([
-        ("a", "Alice", 34),
-        ("b", "Bob", 36),
-        ("c", "Charlie", 30),
-        ("d", "David", 29),
-        ("e", "Esther", 32),
-        ("f", "Fanny", 36),
-        ("g", "Gabby", 60)], ["id", "name", "age"])
-
-    # define edges
-    edges = spark.createDataFrame([
-        ("a", "b", "follow"),
-        ("b", "c", "follow"),
-        ("c", "b", "follow"),
-        ("c", "e", "follow"),
-        ("f", "c", "follow"),
-        ("e", "f", "follow"),
-        ("e", "d", "follow"),
-        ("d", "a", "follow"),
-        ("a", "e", "follow")
-    ], ["src", "dst", "relationship"])
-    # create graph
-    graph = GraphFrame(vertices, edges)
-    return graph
+    gf = GraphFrame(new_vertices, new_edges)
+    return gf
 
 
 if __name__ == '__main__':
     spark, sc = init_spark()
     sc.setLogLevel("ERROR")
 
-
-    dummy = load_dummy_graph()
-    """
-    Some basic functions:
-    g = dummy #our graph
-    g.vertices.show() #print vertices
-    g.edges.show() #print edges
-    
-    # calculate inDegrees for vertices
-    vertexInDegrees = g.inDegrees
-    vertexInDegrees.show() #you can also use .show(k), with k:int, the number of results that you want to take
-    
-    # Find the youngest user's age in the graph.
-    g.vertices.groupBy().min("age").show()
-    
-    # Count the number of "follows" in the graph.
-    numFollows = g.edges.filter("relationship = 'follow'").count()
-    print(numFollows)
-    
-    # Count the number of triangles and show in how many triangles each vertex belongs.
-    results = g.triangleCount()
-    results.select("id", "count").show()
-    """
-
     graph = create_graph()  # facebook graph, only vertices and edges, without metadata for each vertex
 
-    # graph.inDegrees.show(5)
-
-    communities = graph.labelPropagation(maxIter=1)
-    # communities.persist().show()
+    communities = graph.labelPropagation(maxIter=5)
+    print(f"There are {communities.select('label').distinct().count()} communities in sample graph.")
 
     normalizedCommunities = list(communities.select('label').distinct().toLocalIterator())
     d = dict()
     for i in range(len(normalizedCommunities)):
         d.update({normalizedCommunities[i].__getattr__('label'): i})
+    numPartitions = len(d)
 
-    def dictionary_function(d):
+    def dictionary_function(dictionary):
         def f(x):
-            return d[x]
+            return dictionary[x]
         return f
     dict_f = dictionary_function(d)
     udf_dict = F.udf(dict_f, IntegerType())
 
     df = communities.withColumn('label', udf_dict('label'))
 
-    df = df.rdd.map(lambda x: (x[1], x[0])).partitionBy(len(d))
-
-    def subgraph(g_v, g_e, v):
-        #v_list = [[v1] for v1 in v]
-        #v_rdd = sc.parallelize(v_list)
-        #V = spark.createDataFrame(v_rdd, ['id'])
-        #e_list = []
-        #for vi in v_list:
-        #    for vj in v_list:
-        #        if g.edges.filter((g.edges['src']==vi[0])&(g.edges['dst']==vj[0])).count()>0:
-        #            e_list.append([vi[0], vj[0]])
-        #e_rdd = sc.parallelize(e_list)
-        #E = spark.createDataFrame(e_rdd, ['src', 'dst'])
-        #subg = sc.GraphFrame(V, E)
-        return [0]#subg
-
-    def stratified_sampling(g, x):
-        x1 = list(x)
-        sampled = sample(x1, min(len(x1), 10))
-
-        #sub = subgraph(g_v, g_e, sampled)
-
-        return sampled
-    V = graph.vertices
-    E = graph.edges
-    print(type(V))
-
-    v = spark.createDataFrame([
-        ("a", "Alice", 34),
-        ("b", "Bob", 36),
-        ("c", "Charlie", 30),
-        ("d", "David", 29),
-        ("e", "Esther", 32),
-        ("f", "Fanny", 36),
-        ("g", "Gabby", 60)
-    ], ["id", "name", "age"])
-    # Edge DataFrame
-    e = spark.createDataFrame([
-        ("a", "b", "friend"),
-        ("b", "c", "follow"),
-        ("c", "b", "follow"),
-        ("f", "c", "follow"),
-        ("e", "f", "follow"),
-        ("e", "d", "friend"),
-        ("d", "a", "friend"),
-        ("a", "e", "friend")
-    ], ["src", "dst", "relationship"])
-    # Create a GraphFrame
-    g = GraphFrame(v, e)
-    l = [1, 2, 3]
-    #list(g.vertices.toLocalIterator())
-    df2 = df.foreachPartition(lambda x: stratified_sampling(v, x))
+    V = graph.vertices.rdd.map(lambda x: x['id']).sortBy(lambda x: x)
+    E1 = graph.edges.rdd.map(lambda x: (x['src'], x['dst']))
+    E2 = graph.edges.rdd.map(lambda x: (x['dst'], x['src']))
+    grouped_E1 = E1.groupBy(lambda x: x[0]).map(lambda x: (x[0], list(x[1])))
+    grouped_E2 = E2.groupBy(lambda x: x[0]).map(lambda x: (x[0], list(x[1])))
+    grouped_E = grouped_E1.union(grouped_E2).groupByKey().map(lambda x: (x[0], (list(x[1]))[0])).repartition(2)
 
 
-    #print(f"There are {communities.select('label').distinct().count()} communities in sample graph.")
+    def random_walk(x):
+        x = list(x)
+        vertices = x[0][0]
+        edges = x[0][1]
+        #print("Doing random walk here...")
+
+        return [0]
+
+
+    p_v = df.rdd.map(lambda x: (x[1], x[0])).repartition(2)
+    p_v_e = p_v.map(lambda x: (x[1], x[0])).join(grouped_E).map(lambda x: (x[1][0], (x[0], x[1][1])))
+    partitioned_vertices = p_v_e.partitionBy(numPartitions)
+    sampled = partitioned_vertices.mapPartitions(lambda x: random_walk(x))
+    print(sampled.count())
+
