@@ -1,6 +1,7 @@
 from pyspark import SparkConf
 from pyspark.sql import SparkSession
 from graphframes import *
+import numpy as np
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
 
@@ -43,6 +44,48 @@ def create_graph():
     gf = GraphFrame(new_vertices, new_edges)
     return gf
 
+def dictionary_function(dictionary):
+    def f(x):
+        return dictionary[x]
+    return f
+
+def single_random_walk(x):
+    x = list(x)
+    vertices = []
+    neighbors_list = []
+    # for each "line" in x
+    # find vertex and its connections ("neighbors")
+    for el in x:
+        vertex = el[1][0]
+        edges = el[1][1]
+        vertices.append(vertex)
+        neighbors = []
+        for edge in edges:
+            if edge[1] in vertices:
+                neighbors.append(edge[1])
+        neighbors_list.append(neighbors)
+
+    # select a random node to start with // or just start with the first node
+    # but make sure that this node is in this partition!
+    start_vertex = np.random.choice(vertices)
+    # print("min == ",min(vertices),", max == ",max(vertices),", start node == ",start_vertex)
+    visited = []  # keep a list with the visited nodes, through the whole process of random walk
+    len_walk = 10  # sample 100 nodes in each walk
+    for c in range(1, len_walk + 1):
+        position = vertices.index(start_vertex)
+        vertex_neighbors = neighbors_list[position]
+        if len(vertex_neighbors)==0:
+            continue
+        probability = []  # probability of visiting a neighbor is uniform
+        probability = probability + [1. / len(vertex_neighbors)] * len(vertex_neighbors)
+        start_vertex = np.random.choice(vertex_neighbors, p=probability)
+
+        if start_vertex in visited:
+            continue
+        else:
+            visited.append(start_vertex)
+    print(len(visited))
+    return visited
 
 if __name__ == '__main__':
     spark, sc = init_spark()
@@ -59,10 +102,6 @@ if __name__ == '__main__':
         d.update({normalizedCommunities[i].__getattr__('label'): i})
     numPartitions = len(d)
 
-    def dictionary_function(dictionary):
-        def f(x):
-            return dictionary[x]
-        return f
     dict_f = dictionary_function(d)
     udf_dict = F.udf(dict_f, IntegerType())
 
@@ -75,19 +114,9 @@ if __name__ == '__main__':
     grouped_E2 = E2.groupBy(lambda x: x[0]).map(lambda x: (x[0], list(x[1])))
     grouped_E = grouped_E1.union(grouped_E2).groupByKey().map(lambda x: (x[0], (list(x[1]))[0])).repartition(2)
 
-
-    def random_walk(x):
-        x = list(x)
-        vertices = x[0][0]
-        edges = x[0][1]
-        #print("Doing random walk here...")
-
-        return [0]
-
-
     p_v = df.rdd.map(lambda x: (x[1], x[0])).repartition(2)
     p_v_e = p_v.map(lambda x: (x[1], x[0])).join(grouped_E).map(lambda x: (x[1][0], (x[0], x[1][1])))
     partitioned_vertices = p_v_e.partitionBy(numPartitions)
-    sampled = partitioned_vertices.mapPartitions(lambda x: random_walk(x))
+    sampled = partitioned_vertices.mapPartitions(lambda x: single_random_walk(x))
     print(sampled.count())
 
