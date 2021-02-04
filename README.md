@@ -12,3 +12,6 @@ the percentage of nodes that we will try to obtain from each cluster. That perce
 i. of the size of the cluster, 
 and ii. of the cluster’s variance, regarding some property (or properties).
 I.e. having a cluster whose nodes have variate node degrees, the sample size, that we will extract, will be bigger.
+
+
+https://www.overleaf.com/6229828369qhjybwzvnthb
