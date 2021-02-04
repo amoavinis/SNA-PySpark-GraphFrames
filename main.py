@@ -4,6 +4,8 @@ from graphframes import *
 import numpy as np
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
+import networkx as nx
+from random_walks import RandomWalk
 
 formatter = 'com.databricks.spark.csv'
 
@@ -44,10 +46,12 @@ def create_graph():
     gf = GraphFrame(new_vertices, new_edges)
     return gf
 
+
 def dictionary_function(dictionary):
     def f(x):
         return dictionary[x]
     return f
+
 
 def single_random_walk(x):
     x = list(x)
@@ -65,6 +69,11 @@ def single_random_walk(x):
                 neighbors.append(edge[1])
         neighbors_list.append(neighbors)
 
+    edges = x[0][1][1]
+    g = nx.Graph(edges)
+    random_walk = RandomWalk(g, walk_length=5, num_walks=1, p=10, q=10, workers=4, quiet=True)
+    walk_nodes = np.unique(np.array(random_walk.walks).reshape(-1))
+
     # select a random node to start with // or just start with the first node
     # but make sure that this node is in this partition!
     start_vertex = np.random.choice(vertices)
@@ -74,7 +83,7 @@ def single_random_walk(x):
     for c in range(1, len_walk + 1):
         position = vertices.index(start_vertex)
         vertex_neighbors = neighbors_list[position]
-        if len(vertex_neighbors)==0:
+        if len(vertex_neighbors) == 0:
             continue
         probability = []  # probability of visiting a neighbor is uniform
         probability = probability + [1. / len(vertex_neighbors)] * len(vertex_neighbors)
@@ -84,8 +93,9 @@ def single_random_walk(x):
             continue
         else:
             visited.append(start_vertex)
-    print(len(visited))
+    print(walk_nodes.shape, len(vertices), len(visited))
     return visited
+
 
 if __name__ == '__main__':
     spark, sc = init_spark()
@@ -93,7 +103,7 @@ if __name__ == '__main__':
 
     graph = create_graph()  # facebook graph, only vertices and edges, without metadata for each vertex
 
-    communities = graph.labelPropagation(maxIter=5)
+    communities = graph.labelPropagation(maxIter=10)
     print(f"There are {communities.select('label').distinct().count()} communities in sample graph.")
 
     normalizedCommunities = list(communities.select('label').distinct().toLocalIterator())
@@ -119,4 +129,3 @@ if __name__ == '__main__':
     partitioned_vertices = p_v_e.partitionBy(numPartitions)
     sampled = partitioned_vertices.mapPartitions(lambda x: single_random_walk(x))
     print(sampled.count())
-
