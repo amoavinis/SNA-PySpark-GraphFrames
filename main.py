@@ -56,7 +56,7 @@ def dictionary_function(dictionary):
 
 def get_len(nnodes, cc):
     alpha = 5
-    return nnodes / (1 + alpha * cc)
+    return nnodes / (1 + alpha*cc)
 
 
 def single_random_walk(x):
@@ -126,6 +126,22 @@ if __name__ == '__main__':
     plt.bar(deg, hist, width=0.8)
     plt.show()
 
+    degrees = nx.degree(g)
+    avg_deg = sum(dict(degrees).values()) / len(degrees)
+    print(avg_deg)
+
+    bc = nx.betweenness_centrality(g)
+    res = sum(bc.values()) / len(bc)
+    print(res)
+
+    print(nx.diameter(g))
+
+    cl = nx.closeness_centrality(g)
+    print(sum(cl.values())/len(cl))
+
+    t = nx.transitivity(g)
+    print(t)
+
     # nx.draw(g, cmap=plt.get_cmap('jet'))
     # plt.show()
 
@@ -169,11 +185,25 @@ if __name__ == '__main__':
     print(nx.average_clustering(new_graph))  # average clustering coefficient -- global
     hist = nx.degree_histogram(new_graph)  # degree distribution
 
+    degrees = nx.degree(new_graph)
+    avg_deg = sum(dict(degrees).values()) / len(degrees)
+    print(avg_deg)
+
+    trans = nx.transitivity(new_graph)
+    print(trans)
+
     deg = [i for i in range(0, len(hist))]
     plt.bar(deg, hist, width=0.8)
     plt.show()
 
     bc = nx.betweenness_centrality(new_graph)
+    res = sum(bc.values()) / len(bc)
+    print(res)
+
+    cl = nx.closeness_centrality(new_graph)
+    print(sum(cl.values()) / len(cl))
+
+    print(nx.diameter(new_graph))
 
     # nx.draw(new_graph, cmap=plt.get_cmap('jet'))
     # plt.show()
