@@ -5,17 +5,17 @@ import numpy as np
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
 import networkx as nx
-from random_walks import RandomWalk
+import matplotlib.pyplot as plt
 
 formatter = 'com.databricks.spark.csv'
 
 
 def init_spark():
     sparkConf = SparkConf().setMaster("local[2]")
-    spark1 = SparkSession\
-        .builder\
-        .appName("SNA")\
-        .config(conf=sparkConf)\
+    spark1 = SparkSession \
+        .builder \
+        .appName("SNA") \
+        .config(conf=sparkConf) \
         .getOrCreate()
     sc1 = spark1.sparkContext
     return spark1, sc1
@@ -50,37 +50,52 @@ def create_graph():
 def dictionary_function(dictionary):
     def f(x):
         return dictionary[x]
+
     return f
+
+
+def get_len(nnodes, cc):
+    alpha = 5
+    return nnodes / (1 + alpha * cc)
 
 
 def single_random_walk(x):
     x = list(x)
     vertices = []
+    edges_list = []
     neighbors_list = []
     # for each "line" in x
     # find vertex and its connections ("neighbors")
     for el in x:
         vertex = el[1][0]
         edges = el[1][1]
+        edges_list.extend(edges)
         vertices.append(vertex)
         neighbors = []
         for edge in edges:
-            if edge[1] in vertices:
-                neighbors.append(edge[1])
+            neighbors.append(edge[1])
         neighbors_list.append(neighbors)
 
-    edges = x[0][1][1]
-    g = nx.Graph(edges)
-    random_walk = RandomWalk(g, walk_length=5, num_walks=1, p=10, q=10, workers=4, quiet=True)
-    walk_nodes = np.unique(np.array(random_walk.walks).reshape(-1))
+    for index, vertex in enumerate(vertices):
+        temp_list = []
+        for dst in neighbors_list[index]:
+            if dst in vertices:
+                temp_list.append(dst)
+        neighbors_list[index] = temp_list
+
+    # compute average clustering coefficient
+    g = nx.Graph(edges_list)
+    cc = nx.average_clustering(g)
 
     # select a random node to start with // or just start with the first node
     # but make sure that this node is in this partition!
     start_vertex = np.random.choice(vertices)
     # print("min == ",min(vertices),", max == ",max(vertices),", start node == ",start_vertex)
     visited = []  # keep a list with the visited nodes, through the whole process of random walk
-    len_walk = 10  # sample 100 nodes in each walk
-    for c in range(1, len_walk + 1):
+    visited.append(start_vertex)
+    len_walk = int(get_len(len(vertices), cc)) + 1  # sample n nodes in each walk
+
+    for c in range(1, len_walk):
         position = vertices.index(start_vertex)
         vertex_neighbors = neighbors_list[position]
         if len(vertex_neighbors) == 0:
@@ -93,7 +108,7 @@ def single_random_walk(x):
             continue
         else:
             visited.append(start_vertex)
-    print(walk_nodes.shape, len(vertices), len(visited))
+
     return visited
 
 
@@ -103,7 +118,18 @@ if __name__ == '__main__':
 
     graph = create_graph()  # facebook graph, only vertices and edges, without metadata for each vertex
 
-    communities = graph.labelPropagation(maxIter=10)
+    g = nx.Graph(graph.edges.rdd.collect())
+    print(nx.average_clustering(g))
+    hist = nx.degree_histogram(g)
+
+    deg = [i for i in range(0, len(hist))]
+    plt.bar(deg, hist, width=0.8)
+    plt.show()
+
+    # nx.draw(g, cmap=plt.get_cmap('jet'))
+    # plt.show()
+
+    communities = graph.labelPropagation(maxIter=2)
     print(f"There are {communities.select('label').distinct().count()} communities in sample graph.")
 
     normalizedCommunities = list(communities.select('label').distinct().toLocalIterator())
@@ -128,4 +154,26 @@ if __name__ == '__main__':
     p_v_e = p_v.map(lambda x: (x[1], x[0])).join(grouped_E).map(lambda x: (x[1][0], (x[0], x[1][1])))
     partitioned_vertices = p_v_e.partitionBy(numPartitions)
     sampled = partitioned_vertices.mapPartitions(lambda x: single_random_walk(x))
-    print(sampled.count())
+
+    # keep only distinct nodes
+    v = sc.parallelize(np.unique(np.array(sampled.collect())))  # dangerous collect !
+    edges_rdd = graph.edges.rdd.map(lambda x: (x['src'], x['dst']))
+
+    # find all possible pairs between nodes/vertices
+    combinations = v.cartesian(v).filter(lambda x: x[0] != x[1]) \
+        .map(lambda x: (x, 0))
+
+    e = combinations.join(edges_rdd.map(lambda x: (x, 0))).map(lambda x: x[0]).collect()
+
+    new_graph = nx.Graph(e)
+    print(nx.average_clustering(new_graph))  # average clustering coefficient -- global
+    hist = nx.degree_histogram(new_graph)  # degree distribution
+
+    deg = [i for i in range(0, len(hist))]
+    plt.bar(deg, hist, width=0.8)
+    plt.show()
+
+    bc = nx.betweenness_centrality(new_graph)
+
+    # nx.draw(new_graph, cmap=plt.get_cmap('jet'))
+    # plt.show()
