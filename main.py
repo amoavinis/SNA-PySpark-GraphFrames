@@ -123,6 +123,7 @@ if __name__ == '__main__':
 
     calculate_original = False
     if calculate_original:
+        # node degree distribution
         hist = nx.degree_histogram(nx_graph)
         deg = [i for i in range(0, len(hist))]
         plt.bar(deg, hist, width=0.8)
@@ -132,19 +133,23 @@ if __name__ == '__main__':
         # average clustering coefficient -- global
         print("Average clustering coefficient:", nx.average_clustering(nx_graph))
 
+        # average degree
         degrees = nx.degree(nx_graph)
         avg_deg = sum(dict(degrees).values()) / len(degrees)
         print("Average degree:", avg_deg)
 
+        # average betweenness centrality
         bc = nx.betweenness_centrality(nx_graph)
         res = sum(bc.values()) / len(bc)
         print("Average betweenness centrality", res)
 
         print("Diameter:", nx.diameter(nx_graph))
 
+        # average closeness centrality
         cl = nx.closeness_centrality(nx_graph)
         print("Average closeness centrality:", sum(cl.values())/len(cl))
 
+        # transitivity
         t = nx.transitivity(nx_graph)
         print("Transitivity:", t)
 
@@ -175,10 +180,10 @@ if __name__ == '__main__':
     sampled = partitioned_vertices.mapPartitions(lambda x: single_random_walk(x, a))
 
     # keep only distinct nodes
-    v = sc.parallelize(np.unique(np.array(sampled.collect())))  # dangerous collect !
+    v = sc.parallelize(np.unique(np.array(sampled.collect())))
     edges_rdd = graph.edges.rdd.map(lambda x: (x['src'], x['dst']))
 
-    # find all possible pairs between nodes/vertices
+    # find all possible pairs between vertices
     combinations = v.cartesian(v).filter(lambda x: x[0] != x[1]) \
         .map(lambda x: (x, 0))
 
@@ -186,17 +191,16 @@ if __name__ == '__main__':
 
     new_graph = nx.Graph(e)
 
+    # compute same properties for sampled graph, in order to compare it with the original
     make_histogram = False
-
     if make_histogram:
-        hist = nx.degree_histogram(new_graph)  # degree distribution
+        hist = nx.degree_histogram(new_graph)
         deg = [i for i in range(0, len(hist))]
         plt.bar(deg, hist, width=0.8)
         plt.savefig('sampled_histogram_max'+str(max_iter)+'_a'+str(a)+'.eps', format='eps')
         # plt.show()
 
     calculate_metrics = False
-
     if calculate_metrics:
         # average clustering coefficient -- global
         print("Average clustering coefficient:", nx.average_clustering(new_graph))
