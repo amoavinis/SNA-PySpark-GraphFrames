@@ -36,12 +36,6 @@ def create_graph():
     new_edges = new_edges.join(new_vertices, new_edges['_c1'] == new_vertices['id'], 'left')
     new_edges = new_edges.select(new_edges['src'], new_edges['id'].alias('dst'))
 
-    # drop duplicate edges
-    # new_edges = new_edges.dropDuplicates(['src', 'dst'])
-
-    # print("vertex count: %d" % new_vertices.count())
-    # print("edge count: %d" % new_edges.count())
-
     # created graph only with connections among vertices
     gf = GraphFrame(new_vertices, new_edges)
     return gf
@@ -54,12 +48,11 @@ def dictionary_function(dictionary):
     return f
 
 
-def get_len(nnodes, cc):
-    alpha = 5
-    return nnodes / (1 + alpha*cc)
+def get_len(n_nodes, cc, alpha):
+    return n_nodes / (1 + alpha*cc)
 
 
-def single_random_walk(x):
+def single_random_walk(x, alpha):
     x = list(x)
     vertices = []
     edges_list = []
@@ -90,10 +83,10 @@ def single_random_walk(x):
     # select a random node to start with // or just start with the first node
     # but make sure that this node is in this partition!
     start_vertex = np.random.choice(vertices)
-    # print("min == ",min(vertices),", max == ",max(vertices),", start node == ",start_vertex)
-    visited = []  # keep a list with the visited nodes, through the whole process of random walk
+
+    visited = list()  # keep a list with the visited nodes, through the whole process of random walk
     visited.append(start_vertex)
-    len_walk = int(get_len(len(vertices), cc)) + 1  # sample n nodes in each walk
+    len_walk = int(get_len(len(vertices), cc, alpha)) + 1  # sample n nodes in each walk
 
     for c in range(1, len_walk):
         position = vertices.index(start_vertex)
@@ -118,34 +111,44 @@ if __name__ == '__main__':
 
     graph = create_graph()  # facebook graph, only vertices and edges, without metadata for each vertex
 
-    g = nx.Graph(graph.edges.rdd.collect())
-    print(nx.average_clustering(g))
-    hist = nx.degree_histogram(g)
+    a = 2
+    max_iter = 5
 
-    deg = [i for i in range(0, len(hist))]
-    plt.bar(deg, hist, width=0.8)
-    plt.show()
+    nx_graph = nx.Graph(graph.edges.rdd.collect())
 
-    degrees = nx.degree(g)
-    avg_deg = sum(dict(degrees).values()) / len(degrees)
-    print(avg_deg)
+    plot_original = True
+    if plot_original:
+        nx.draw(nx_graph)
+        plt.savefig('original_graph.eps', format='eps')
 
-    bc = nx.betweenness_centrality(g)
-    res = sum(bc.values()) / len(bc)
-    print(res)
+    calculate_original = False
+    if calculate_original:
+        hist = nx.degree_histogram(nx_graph)
+        deg = [i for i in range(0, len(hist))]
+        plt.bar(deg, hist, width=0.8)
+        plt.savefig('original_histogram')
+        # plt.show()
 
-    print(nx.diameter(g))
+        # average clustering coefficient -- global
+        print("Average clustering coefficient:", nx.average_clustering(nx_graph))
 
-    cl = nx.closeness_centrality(g)
-    print(sum(cl.values())/len(cl))
+        degrees = nx.degree(nx_graph)
+        avg_deg = sum(dict(degrees).values()) / len(degrees)
+        print("Average degree:", avg_deg)
 
-    t = nx.transitivity(g)
-    print(t)
+        bc = nx.betweenness_centrality(nx_graph)
+        res = sum(bc.values()) / len(bc)
+        print("Average betweenness centrality", res)
 
-    # nx.draw(g, cmap=plt.get_cmap('jet'))
-    # plt.show()
+        print("Diameter:", nx.diameter(nx_graph))
 
-    communities = graph.labelPropagation(maxIter=2)
+        cl = nx.closeness_centrality(nx_graph)
+        print("Average closeness centrality:", sum(cl.values())/len(cl))
+
+        t = nx.transitivity(nx_graph)
+        print("Transitivity:", t)
+
+    communities = graph.labelPropagation(maxIter=max_iter)
     print(f"There are {communities.select('label').distinct().count()} communities in sample graph.")
 
     normalizedCommunities = list(communities.select('label').distinct().toLocalIterator())
@@ -169,7 +172,7 @@ if __name__ == '__main__':
     p_v = df.rdd.map(lambda x: (x[1], x[0])).repartition(2)
     p_v_e = p_v.map(lambda x: (x[1], x[0])).join(grouped_E).map(lambda x: (x[1][0], (x[0], x[1][1])))
     partitioned_vertices = p_v_e.partitionBy(numPartitions)
-    sampled = partitioned_vertices.mapPartitions(lambda x: single_random_walk(x))
+    sampled = partitioned_vertices.mapPartitions(lambda x: single_random_walk(x, a))
 
     # keep only distinct nodes
     v = sc.parallelize(np.unique(np.array(sampled.collect())))  # dangerous collect !
@@ -182,28 +185,38 @@ if __name__ == '__main__':
     e = combinations.join(edges_rdd.map(lambda x: (x, 0))).map(lambda x: x[0]).collect()
 
     new_graph = nx.Graph(e)
-    print(nx.average_clustering(new_graph))  # average clustering coefficient -- global
-    hist = nx.degree_histogram(new_graph)  # degree distribution
 
-    degrees = nx.degree(new_graph)
-    avg_deg = sum(dict(degrees).values()) / len(degrees)
-    print(avg_deg)
+    make_histogram = False
 
-    trans = nx.transitivity(new_graph)
-    print(trans)
+    if make_histogram:
+        hist = nx.degree_histogram(new_graph)  # degree distribution
+        deg = [i for i in range(0, len(hist))]
+        plt.bar(deg, hist, width=0.8)
+        plt.savefig('sampled_histogram_max'+str(max_iter)+'_a'+str(a)+'.eps', format='eps')
+        # plt.show()
 
-    deg = [i for i in range(0, len(hist))]
-    plt.bar(deg, hist, width=0.8)
-    plt.show()
+    calculate_metrics = False
 
-    bc = nx.betweenness_centrality(new_graph)
-    res = sum(bc.values()) / len(bc)
-    print(res)
+    if calculate_metrics:
+        # average clustering coefficient -- global
+        print("Average clustering coefficient:", nx.average_clustering(new_graph))
 
-    cl = nx.closeness_centrality(new_graph)
-    print(sum(cl.values()) / len(cl))
+        degrees = nx.degree(new_graph)
+        avg_deg = sum(dict(degrees).values()) / len(degrees)
+        print("Average degree:", avg_deg)
 
-    print(nx.diameter(new_graph))
+        bc = nx.betweenness_centrality(new_graph)
+        res = sum(bc.values()) / len(bc)
+        print("Average betweenness centrality", res)
 
-    # nx.draw(new_graph, cmap=plt.get_cmap('jet'))
-    # plt.show()
+        t = nx.transitivity(new_graph)
+        print("Transitivity:", t)
+
+        cl = nx.closeness_centrality(new_graph)
+        print("Average closeness centrality:", sum(cl.values()) / len(cl))
+
+    make_graph = False
+
+    if make_graph:
+        nx.draw(new_graph)
+        plt.savefig('sampled_graph_max'+str(max_iter)+'_a'+str(a)+'.eps', format='eps')
