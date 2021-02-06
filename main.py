@@ -104,6 +104,11 @@ def single_random_walk(x, alpha):
 
     return visited
 
+def plot_degree_dist(G):
+    degrees = [G.degree(n) for n in G.nodes()]
+    plt.hist(degrees)
+    plt.show()
+
 
 if __name__ == '__main__':
     spark, sc = init_spark()
@@ -116,7 +121,7 @@ if __name__ == '__main__':
 
     nx_graph = nx.Graph(graph.edges.rdd.collect())
 
-    plot_original = True
+    plot_original = False
     if plot_original:
         nx.draw(nx_graph)
         plt.savefig('original_graph.eps', format='eps')
@@ -125,10 +130,10 @@ if __name__ == '__main__':
     if calculate_original:
         # node degree distribution
         hist = nx.degree_histogram(nx_graph)
-        deg = [i for i in range(0, len(hist))]
-        plt.bar(deg, hist, width=0.8)
-        plt.savefig('original_histogram')
-        # plt.show()
+        deg = [i for i in range(0,len(hist))]
+        pk = [(i/len(hist)) for i in hist]
+        plt.bar(deg,pk, width=0.8)
+        plt.savefig('original_histogram.eps', format='eps')
 
         # average clustering coefficient -- global
         print("Average clustering coefficient:", nx.average_clustering(nx_graph))
@@ -192,13 +197,13 @@ if __name__ == '__main__':
     new_graph = nx.Graph(e)
 
     # compute same properties for sampled graph, in order to compare it with the original
-    make_histogram = False
+    make_histogram = True
     if make_histogram:
         hist = nx.degree_histogram(new_graph)
         deg = [i for i in range(0, len(hist))]
-        plt.bar(deg, hist, width=0.8)
+        pk = [(i / len(hist)) for i in hist]
+        plt.bar(deg, pk, width=0.8)
         plt.savefig('sampled_histogram_max'+str(max_iter)+'_a'+str(a)+'.eps', format='eps')
-        # plt.show()
 
     calculate_metrics = False
     if calculate_metrics:
@@ -220,7 +225,6 @@ if __name__ == '__main__':
         print("Average closeness centrality:", sum(cl.values()) / len(cl))
 
     make_graph = False
-
     if make_graph:
         nx.draw(new_graph)
         plt.savefig('sampled_graph_max'+str(max_iter)+'_a'+str(a)+'.eps', format='eps')
